@@ -29,6 +29,8 @@ class CCanLogger  {
 		pthread_t _pCanLoggerThread;
 		pthread_t _pCanProcessorThread;
 
+		//...Data threads
+
 		//...Dictonary
 		bool _runLoggerThread ( );
 		bool _runProccessThread ( );
@@ -50,7 +52,8 @@ class CCanLogger  {
 		int recvCanPacket ( CanPacket* packet );
 
 	protected:
-			static bool threadKill;
+			static bool threadKillLogger;
+			static bool threadKillProcessor;
 
 
 };

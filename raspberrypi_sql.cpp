@@ -136,7 +136,12 @@ bool CPiSQLHandler::checkPi ( CRaspberryPi * pi ){
 		while (res->next()) {
 			//...Check id
 			if ( res->getInt("id") == pi->getSerial() ){
+				//#DEBUG
+				#ifdef DEBUG
+					printf("%s Pi %i Exists\n", prefix , pi->getSerial() );
+				#endif
 				ret = true;
+				break;
 			}
 		}
 		delete res;

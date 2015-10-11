@@ -184,6 +184,6 @@ void CZCore::displayThreadInfo ( char * prefix ){
     }else{
         for (int j = 0; j < CPU_SETSIZE; j++)
                if (CPU_ISSET(j, &cpuset))
-                printf("%s Proccess ID: %i CPU Worker: %i\n", prefix ,  getpid() , j );
+                printf("%s Proccess ID: %ld CPU Worker: %u\n", prefix , (long int)syscall(SYS_gettid) , j );
     }
 }

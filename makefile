@@ -20,7 +20,7 @@ all: $(program_NAME)
 debug: CXXFLAGS += -DDEBUG -g
 debug: CCFLAGS += -DDEBUG -g
 debug: $(program_OBJS)
-	$(CXX) $(program_OBJS) -o $(program_NAME) $(flags) -g
+	$(CXX) $(program_OBJS) -o $(program_NAME) -g -rdynamic $(flags)
 
 $(program_NAME): $(program_OBJS)
 	$(LINK.cc) $(program_OBJS) -o $(program_NAME) $(flags)

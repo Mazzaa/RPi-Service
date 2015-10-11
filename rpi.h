@@ -20,13 +20,21 @@
 #include <net/if.h>
 #include <netinet/in.h>
 
+#include <execinfo.h> 		//...EXEPTION HANDLER
+#include <sys/syscall.h>
+
 #include <fcntl.h>
 #include <signal.h>
 #include <math.h>
 #include <unistd.h>
-#include <pthread.h>  		
+#include <pthread.h>  
+#include <semaphore.h>  /* Semaphore */		
 
 #include <string.h>
+#include <iostream>
+#include <vector>
+#include <map>
+#include <queue>
 #include <errno.h>
 #include <time.h>
 #include <math.h>
@@ -34,8 +42,8 @@
 #define max_rpi(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a > _b ? _a : _b; } )
 #define min_rpi(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a < _b ? _a : _b; } )
 
-#define max(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a > _b ? _a : _b; } )
-#define min(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a < _b ? _a : _b; } )
+//#define max(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a > _b ? _a : _b; } )
+//#define min(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a < _b ? _a : _b; } )
 
 //...Project Deifines
 #define PROJECT_SERIAL (int)0x1555 //...C&C Ping
@@ -68,9 +76,13 @@
 #define BUFF_SIZE_M	128
 #define BUFF_SIZE_L 256
 #define BUFF_SIZE_X	512
+#define BUFF_SIZE_Y 1024
+#define BUFF_SIZE_Z 2048
 
-#define SERVER_PORT 22770   //The port on which to listen for incoming data
-#define SERVER_MULTCAST_ADDR 	"239.255.60.60"
+#define SERVER_PORT 	22770   //#IN-COMING - the port on which to listen for incoming data ( RPI in's)
+#define SERVER_PORT_OUT 21770	//#OUT-GOING - Port of outgoing information ( RPI's Sending from main thread)
+#define SERVER_MULTCAST_ADDR 		"239.255.60.60"
+#define SERVER_MULTCAST_ADDR_RPI 	"239.255.60.50"
 #define SERVER_CANBUS_PORT 		4876
 
 #define CANUDP_BUS_ID				0x54726974697560
@@ -125,7 +137,7 @@ typedef unsigned char byte;			///< A data byte
 */
 
 //...MYSQL CONSTANTS
-#define MYSQL_DEFAULT_IP "gnar.local"
+#define MYSQL_DEFAULT_IP "127.0.0.1" //"gnar.local"
 #define MYSQL_DEFAULT_PORT 3306
 
 #define MYSQL_USER	"solar"
@@ -149,8 +161,8 @@ typedef unsigned char byte;			///< A data byte
 		port - ([MYSQL - SMALLINT] [CPP - UNSIGNED SHORT ])
 		services - STRING (255) <- SERVICES are seperated by '|' delimter eg: SSH|MYSQL|WWW
 */
-#define SQL_PI_TABLE_DEFAULT "(id INT UNSIGNED PRIMARY KEY , name VARCHAR(255) , ip VARCHAR(16) , port SMALLINT , services VARCHAR(255) )"
-#define SQL_PI_FIELDS_INSERT "(id,name,ip,port,services)" 
+#define SQL_PI_TABLE_DEFAULT "(id INT UNSIGNED PRIMARY KEY , name VARCHAR(255) , ip VARCHAR(16) , port SMALLINT , services VARCHAR(255), ping INT )"
+#define SQL_PI_FIELDS_INSERT "(id,name,ip,port,services,ping)" 
 
 //...RPI Services
 #define SERV_SSH "SSH"
@@ -200,6 +212,7 @@ using namespace std;
 #include "mem.h"				// mem.cpp
 #include "sock.h"				// sock.cpp
 #include "tools.h"				// tools.cpp | md5.cpp
+#include "Timer.h"
 
 //...Project header
 #include "raspberrypi.h"		// : raspberrypi.cpp
@@ -226,8 +239,25 @@ inline int randrange ( int min , int max ) {
 }
 
 //...Static global
-static CRaspberryPi 	gPi;
-static CZCore			gCore;
-static CRPiService		gService;
+static pthread_mutexattr_t				gMemoryShare;
+static CRaspberryPi 					gPi;
+static CZCore							gCore;
+static CRPiService						gService;
+static CCanLoggerDictonary 				ghex_id_data;
+static CCanLogger       				gCanLogger;
+
+static std::vector<CRaspberryPi*> 		gPiList;
+static pthread_mutex_t 					gPiListLock = PTHREAD_MUTEX_INITIALIZER;
+static CSocket 							gSocketCore;
+
+static CPiSQLHandler* 					qPiHandler;
+
+
+
+//...DATA QUEUE
+static pthread_mutex_t 					dataQueueAlphaMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t 					dataQueueBravoMutex = PTHREAD_MUTEX_INITIALIZER;
+static std::vector<CanPacket*> 			dataQueueAlpha;
+static std::vector<CanPacket*> 			dataQueueBravo;
 
 #endif

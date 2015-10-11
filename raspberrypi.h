@@ -1,5 +1,15 @@
 #pragma once
 
+struct sPingHeartBeat
+{
+	int id;	 //...Unqiue id of the ping
+	CTimer timer;
+	int ping; // MS :
+	bool done;
+};
+
+
+
 class CRaspberryPi {
 	//...Private info
 	unsigned short piPort;
@@ -7,6 +17,12 @@ class CRaspberryPi {
 	char piMacAddress[BUFF_SIZE_M];
 	char piName[BUFF_SIZE_M];
 	int uniqueSerial;
+
+	//...List:
+	/*
+		Heart beats are used to measure pings on the rasperry pis
+	*/
+	std::vector<sPingHeartBeat *>	heartBeats; //...Queue FIFO C->B->A 
 
 	//...Static prefix
 	static char prefix[BUFF_SIZE_M];

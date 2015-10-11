@@ -38,7 +38,28 @@ bool CRaspberryPi::alive( )	//...is the pi live
 }
 unsigned short CRaspberryPi::ping( ) //...Returns the latency of the pi
 {
-	return 0;
+	//...Process list
+	int ping = 0,count=0;
+	sPingHeartBeat* beat = NULL;
+
+	for (std::vector<sPingHeartBeat *>::iterator it = heartBeats.begin() ; it != heartBeats.end(); ++it){
+		beat = *it;
+		if ( beat->done ){
+			ping+= beat->ping;
+			count++;
+		}else{
+			ping+= beat->timer.getElapsedTimeInMilliSec();
+			count++;
+		}
+	}
+
+	//...Check size
+	while ( heartBeats.size() > 32 ){
+		heartBeats.pop_back();
+	}
+
+   	//...Return ping by count of succesful pings average
+	return static_cast<int>(ping / (count==0?1:count));
 }
 
 //...Gets
@@ -63,36 +84,65 @@ int CRaspberryPi::generateSerial(){
 	return randrange ( 22000 , 66000 );
 }
 
+/*
+	struct sPingHeartBeat
+	{
+		int id;	 //...Unqiue id of the ping
+		CTimer timer;
+		int ping; // MS :
+		bool done;
+	};
+*/
+
 //...Ping Pi function
 bool CRaspberryPi::pingPi ( CSocket * sock , CBuffer * buff ){
 	//...Ping the pi
 	if ( sock == NULL )return false;
 	if ( buff == NULL )return false;
-	int heartBeatId = generateSerial();
 
 	printf("%s PI %i Sent HEART BEAT\n", prefix , uniqueSerial );
 
+	//...Generate Heart beat packet
+	sPingHeartBeat * beat = new sPingHeartBeat();
+	beat->id = generateSerial();
+	beat->timer.start();
+	beat->done = false;
+	beat->ping = 0;
+
 	//...Check socket
-	buff->clear();
+	//buff->clear();	THIS CAUSES MEMORY ERRORS FROM THREADS : CAN'T ACCES THREAD STACK
     buff->writeint      ( PROJECT_SERIAL );
     buff->writebyte     ( RPI_NET_HEARTBEAT );	//...Heart beat is simple hello
     buff->writeint 	   	( uniqueSerial );		//...Serial Identifies the sender
-    buff->writeint 	   	( heartBeatId );		//...Serial Identifies the sender
+    buff->writeint 	   	( beat->id );		//...Serial Identifies the sender
 
-    return sock->sendmessage    ( piIpAddress , piPort , buff );
+    //...Record Heart beat
+    heartBeats.insert ( heartBeats.begin() , beat );
+
+    return sock->sendmessage    ( piIpAddress , piPort , buff ) > 0;
 }
+
+/*
+	struct sPingHeartBeat
+	{
+		int id;	 //...Unqiue id of the ping
+		CTimer timer;
+		int ping; // MS :
+		bool done;
+	};
+*/
 
 void CRaspberryPi::handlePing ( int heartBeatId ){
 	//...Lookup ping : tick it off
-
-	/*
-	SHeartBeat * n = heartBeatList.getHeartBeat ( heartBeatId );
-
-	if ( n == NULL ){
-		printf ( "%s Unknown heart beat %i\n");
-	}else{
-		//...Tick it off
-		n.recieved();
+	sPingHeartBeat * beat = NULL;
+	for (std::vector<sPingHeartBeat *>::iterator it = heartBeats.begin() ; it != heartBeats.end(); ++it){
+		beat = *it;
+		//...Find id
+		if ( beat->id == heartBeatId ){
+			//...Fill out ping
+			beat->timer.stop();
+			beat->done = true;
+			beat->ping = beat->timer.getElapsedTimeInMilliSec();
+		}
 	}
-	*/
 }

@@ -1,6 +1,6 @@
 #include "rpi.h"
 
-bool CRPiService::threadKill = false;
+volatile bool CRPiService::threadKill = false;
 char CRPiService::prefix[BUFF_SIZE_L];
 _tThreadArgs CRPiService::threadData;
 
@@ -23,7 +23,7 @@ void CRPiService::setServicePorts ( int port ){
 //...Service init/destory
 bool CRPiService::initService (){
 	//...Start the service
-	int cpuID = CPU_ID_SERVICE;
+	int cpuID = 0;//CPU_ID_SERVICE;
 	cpu_set_t cpuset;
 
 	// pthread_create (thread, attr, start_routine, arg) '
@@ -78,7 +78,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
     //...Toolkit
     CBuffer rBuff;
     CBuffer sBuff;
-    CSocket sock;
+    // CSocket sock; - Use : gSocketCore 
     CRaspberryPi * raspPi = NULL;
 
     char ip[16]; strcpy ( ip , "127.0.0.1" );
@@ -87,8 +87,11 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
     strcpy ( afix , "[Discovery]: ");
 
     //...Check we can open udp sockets
-    if (sock.udpconnectmcast ( SERVER_MULTCAST_ADDR , opsPort , 1 )<0){
+    if (gSocketCore.udpconnectmcast ( SERVER_MULTCAST_ADDR_RPI , opsPort , 1 )<0){
         printf ( "[ERROR] : CSocket::udpconnect Failed" );
+    }
+    else{
+        printf("%s RPi-Service LISTENING ON: %s:%i\n", prefix , SERVER_MULTCAST_ADDR_RPI , opsPort  );
     }
 
     //...Send a broadcast
@@ -100,7 +103,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
     //# DATA
     sBuff.writeint  ( gPi.getSerial() );
 
-    if ( !sock.sendmessage ( "127.0.0.1" , SERVER_PORT , &sBuff ) ){
+    if ( !gSocketCore.sendmessage ( SERVER_MULTCAST_ADDR_RPI , SERVER_PORT , &sBuff ) ){
         printf("[ERROR]: SEND Discovery FAILED\n");
     }
     
@@ -119,7 +122,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
 
         //try to receive some data, this is a blocking call         
         do {
-            recv_len = sock.receivemessage ( BUFF_SIZE_L , &rBuff );
+            recv_len = gSocketCore.receivemessage ( BUFF_SIZE_L , &rBuff );
         }while ( recv_len <= 0 );
 
         //...Retrieve last infomation
@@ -131,7 +134,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
         code = rBuff.readbyte ();
 
         if ( CZCore::RPiAuthenticate(serial) > 0 ) {
-            printf ( "%s Authentic: %i Code: %i | Bytes rec: %i \n" , afix , serial , code , recv_len );         
+            //printf ( "%s Authentic: %i Code: %i | Bytes rec: %i \n" , afix , serial , code , recv_len );         
             
             // : Data 
             switch ( code ) {
@@ -146,7 +149,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                 case RPI_NET_PING:
                 {
                     piSerial = rBuff.readint ( );
-                    printf ( "%s RPi NETWORK PING RECV : ID (%i)\n" , afix , piSerial );                   
+                    printf ( "%s RPi Ping Recv : ID (%i)\n" , afix , piSerial );                   
                     
                     //...Write message 
                     sBuff.clear();
@@ -159,7 +162,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                     sBuff.writeint      ( gPi.getSerial() );
                     sBuff.writestring   ( gPi.getMyName() );
 
-                    recv_len = sock.sendmessage    ( ip_in , port_in , &sBuff );
+                    recv_len = gSocketCore.sendmessage    ( ip_in , port_in , &sBuff );
 
                     printf ( "%s Reply sent %i bytes to %s:%i \n" , afix ,recv_len, ip_in , port_in );         
                     break;        
@@ -182,15 +185,23 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                     char * t = rBuff.readstring();
                     strcpy ( spareBuff , t );
 
-                    printf ( "%s RPi NETWORK PONG RECV : ID (%i)\n" , afix , piSerial ); 
+                    printf ( "%s RPi Pong Recv : ID (%i)\n" , afix , piSerial ); 
 
                     //...Check : NON EXIST
                     if ( !qPiHandler->checkPi ( ip_in , port_in , piSerial ) ){
                         //...Exists
                         raspPi = new CRaspberryPi ( ip_in , port_in , piSerial , spareBuff );
+                        //...Local register | MYSQL Register ( for web GUI )
                         if ( !qPiHandler->registerPi ( raspPi ) ){
                             printf("%s Failed to register PI : See MYSQL Error\n", prefix );
                         }
+
+                        //...Memory map
+                        pthread_mutex_lock(&gPiListLock);
+                        sBuff.clear();
+                        gPiList.insert ( gPiList.end() ,  raspPi );
+                        raspPi->pingPi ( &gSocketCore ,  &sBuff );
+                        pthread_mutex_unlock(&gPiListLock);
                     }
                     delete raspPi;
 
@@ -209,26 +220,26 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                 */
                 case RPI_NET_HEARTBEAT:
                 {
-                    printf("%s WE ARE BEATING\n", "[HEART-BEAT]: " );
                     //...Heart beat : We are to respond
                     serial = rBuff.readint ( );
                     heartBeat = rBuff.readint(); //..Unique heart beat id:
                     sBuff.clear();
+                    printf("%s Heartbeat Request (%i) \n", "[HEART-BEAT]: " , heartBeat );
 
                     //...Heart beat : Ping
-                    int ret = qPiHandler->checkPi ( ip_in , port_in , serial ); //...LOOK UP IF EXISTING ( IP : PORT : SERIAL );
                     if ( qPiHandler->checkPi ( ip_in , port_in , serial ) ){
+                        
                         //...Header
-                        /*sBuff.writeint ( PROJECT_SERIAL );      //...Application version/identification
+                        sBuff.writeint ( PROJECT_SERIAL );      //...Application version/identification
                         sBuff.writebyte( RPI_NET_HEAREDBEAT );  //...NETWORK PROTOCAL
 
                         //...Write data packer for heart beated
                         sBuff.writeint ( gPi.getSerial() );     //...Write our serial
                         sBuff.writeint ( heartBeat );           //...Heart beat reply
 
-                        if (sock.sendmessage    ( ip_in , port_in , &sBuff )<0){
+                        if (gSocketCore.sendmessage    ( ip_in , port_in , &sBuff )<0){
                             printf ( "[ERROR] SOCKET SEND FAILED\n");
-                        }*/
+                        }
                     }
                     break;
                 }
@@ -245,10 +256,10 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                 */
                 case RPI_NET_HEAREDBEAT:
                 {
-                    printf("%s HEART BREAT ALIVE\n", "[HEART-BEAT]: " );
                     //...Heart beat responsed
                     piSerial = rBuff.readint ( ); //...Who's it from
                     heartBeat =  rBuff.readint(); //...Read the heart beat
+                    printf("%s Heartbeat Reply (%i) \n", "[HEART-BEAT]: " , heartBeat );
 
                     bool ret = qPiHandler->checkPi ( ip_in , port_in , serial ); //...LOOK UP IF EXISTING ( IP : PORT : SERIAL );
                    
@@ -269,9 +280,11 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                             printf("[FATAL] UNREACHABLE CODE!!! : RPI_NET_HEAREDBEAT : Pi Check TRUE : getPi : FALSE \n");
                         }
 
-                    }else{
+                    }
+                    /*else{
 
                         //# PI : YOU CANT HEART BEAT ME IF YOU DONT EXIST
+                        sBuff.clear();
                         sBuff.writeint ( PROJECT_SERIAL );      //...Application version/identification
                         sBuff.writebyte( RPI_NET_PING );        //...NETWORK PROTOCAL
                         sBuff.writeint ( gPi.getSerial() );     //...Write our serial
@@ -279,7 +292,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
                         if (sock.sendmessage    ( ip_in , port_in , &sBuff )<0){
                             printf ( "[ERROR] SOCKET SEND FAILED\n");
                         }
-                    }
+                    }*/
 
                     break;
                 }
@@ -300,7 +313,7 @@ void *CRPiService::_ServiceThread( void * ptr ) //...Service thread
 
     //..Setup
     printf ("%s RPI UDP Discovery Finnished \n", prefix );
-    sock.destroy();
+    gSocketCore.destroy();
     qPiHandler->resetPiTable();
     pthread_exit(NULL);
 }

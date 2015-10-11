@@ -24,14 +24,23 @@
 struct sDictonaryField {
 	char FEILD 	[ BUFF_SIZE_S ];
 	char TYPE	[ BUFF_SIZE_S ];
+	bool endian;					//...Can data can be BIG or LITTLE ENDIAN
 	int size;
 };
 
 class sDictonaryItem {
 	int id; //...This is coded in hex;
 	char hexStr[BUFF_SIZE_S]; //..String representation 
+	char dataName[BUFF_SIZE_L];
+
+	std::vector < sDictonaryField * > myFields;
+
 public:
-	sDictonaryItem ( int hexId );
+	sDictonaryItem ( int hexId , char * name );
+
+	//...Identifier
+	int getHexID( );
+	char* getDataName ( );
 
 	//...Feilds
 	void addField ( char* name , char* type , int bitSize );
@@ -41,14 +50,15 @@ public:
 	
 	sDictonaryField * getField ( int index );
 	void getField ( int index , sDictonaryField * out );
-
-
+	char* getFieldName ( int index );
+	int getFieldSize ( int index );
 };
 
 //....Structure
 class CCanLoggerDictonary {
 
 	//...Dicotnary store
+	std::map<int,sDictonaryItem*> hex_id_data;
 public:
 	//...Constructors
 	CCanLoggerDictonary();
@@ -58,13 +68,17 @@ public:
 	bool initDictonary();
 	bool stopDictonary();
 
-	//...Set import
-	void setDictonaryHardCoded();	//...Set to use dictonary hard coded
-	void setDictonaryImportFIle();	//...Set to use imported dictonary
 
-	//...Import
-	bool setImportFile ( char * dictonary );		//...Set the file we are going to inport
-	bool initImportFile();	//...Start processing the file for inport
+	void initImportHardCoded();		//...Imports hard coded dictonary
 
+	//...Tools
+	int getRecordCount ();
 
+	bool checkExist ( int id );		//...Check for hex id
+
+	bool addDictonaryRecord ( sDictonaryItem * record ); //...Add new dictonary record
+
+	//...Dictonary lookup
+	bool getRecord ( int id , sDictonaryItem * record );
+	char* getRecordName ( int id );
 };

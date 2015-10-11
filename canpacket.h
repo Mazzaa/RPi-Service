@@ -15,33 +15,26 @@
 class CanPacket
 {
 protected:
-	//...Packet headers
-	UInt64 busId;			//...BUS ID: 0x0054726974697560 
-	UInt64 senderId;
-	UInt32 id;
+	//...Private data
+	UInt64 BUS_ID;
+	UInt64 CLIENT_ID;
+	UInt32 hexId;
 
-	//...Can packet flags
-	bool bridgeHb;
-	bool extended;
-	bool rtr;
+	char flags;
+	char length;
 
-	byte length;
-	void init(UInt32 id, bool extended, bool rtr, byte length, UInt64 data);
-	void init(UInt32 id, bool extended, bool rtr, byte length, byte* data);
+	char CAN_DATA [BUFF_SIZE_M];
+
 public:
 	//...Constructor
-	CanPacket(UInt32 id, bool extended, bool rtr, byte length, UInt64 data);
-	CanPacket(UInt32 id, bool extended, byte length, UInt64 data);
-	CanPacket(UInt32 id, bool extended, bool rtr, byte length);
- 	CanPacket(UInt32 id, bool extended, bool rtr, byte length, byte* data);
-	CanPacket(UInt32 id, bool extended, byte length, byte* data);
+	CanPacket ( CBuffer * in ); 	//# IN : Import packet
+	CanPacket ( UInt32 id , CBuffer * out ); //# OUT DATA
 
 	//...Get functions
-	UInt32 getId();
-	bool isExtended();
-	bool isRTR();
-	UInt64 getData();
-	UInt64 getDataValue();
-	byte* getDataArray();
-	byte getLength();
+	UInt32 	getID ( );
+	char 	getLength();	//...Packets limted to 255  bytes;
+
+	//....Data
+	void getData ( CBuffer * out );	//...Copy internal data to the buffer
+	void setData ( CBuffer * in ); //...Copy all data into packet
 };

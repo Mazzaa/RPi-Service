@@ -160,9 +160,9 @@ bool CSocket::udpconnectmcast( char* multicast , int port , int mode ){
 	if((sockid = socket(AF_INET, SOCK_DGRAM, 0)) == SOCKET_ERROR)
         return false;    
 	
-	u_int reuse = 1;
+	u_int reuse = 0;
 	if (setsockopt(sockid,SOL_SOCKET,SO_REUSEADDR, &reuse, sizeof(u_int) ) < 0) {
-		return false;
+			return false;
 	}
 
 	/* set up destination address */
@@ -171,6 +171,7 @@ bool CSocket::udpconnectmcast( char* multicast , int port , int mode ){
 	udpAddr.sin_addr.s_addr = inet_addr ( multicast );
 	udpAddr.sin_port = htons(port);
 	if(mode)setsync(1);
+
 	/* bind to receive address */
 	if (bind(sockid,(struct sockaddr *) &udpAddr,sizeof(udpAddr)) < 0) {
 		return false;
@@ -178,7 +179,7 @@ bool CSocket::udpconnectmcast( char* multicast , int port , int mode ){
 
 	/* use setsockopt() to request that the kernel join a multicast group */
 	mAddr.imr_multiaddr.s_addr=inet_addr ( multicast );
-	mAddr.imr_interface.s_addr=htonl(INADDR_ANY);
+	mAddr.imr_interface.s_addr=htonl( INADDR_ANY );
 
 	//...Join membership
 	if (setsockopt(sockid,IPPROTO_IP,IP_ADD_MEMBERSHIP,&mAddr,sizeof(mAddr)) < 0) {
@@ -206,7 +207,13 @@ int CSocket::sendmessage(char *ip, int port, CBuffer *source)
 	{
 		//...UDP MULTI-CAST RE-USES SAME ADDRESS
 		size = min(source->count, 8195);
-		size = sendto(sockid, source->data, size, 0, (SOCKADDR *)&udpAddr, sizeof(SOCKADDR_IN));
+
+		//...For multi-cast : check if we are sending to a different port
+		if ( port!= 0 ){
+			memcpy (&addr, &udpAddr , sizeof(SOCKADDR_IN) );
+			addr.sin_port = htons(port);
+		}
+		size = sendto(sockid, source->data, size, 0, (SOCKADDR *)&addr , sizeof(SOCKADDR_IN));
 	}
 	else
 	{

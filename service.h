@@ -30,5 +30,5 @@ public:
 	void setServicePorts ( int port );
 
 protected:
-		static bool threadKill;
+		static volatile bool threadKill;
 };

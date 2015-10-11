@@ -13,7 +13,6 @@
         CPU 2 : CanProccessor Service ( QUEUE -> MYSQL Network )
 */
 
-CPiSQLHandler * qPiHandler;
 
 int SigExit = 0;
 char prefix[BUFF_SIZE_L];
@@ -22,6 +21,7 @@ char prefix[BUFF_SIZE_L];
 void runRPi (); //...Run Discoverry
 void die (const char* s );
 void sigHandler (int sig);
+void sigExceptionHandler ( int sig );
 
 void setThreadCPU ();
 
@@ -35,6 +35,18 @@ int main ( int agc , char * argv[] ) {
 
     // : ENTRY TO APPLICATIONS :
     signal(SIGINT, sigHandler );
+    signal(SIGSEGV, sigExceptionHandler );
+
+    //...ENABLE - THREAD MEMORY SHARE
+    pthread_mutexattr_init(&gMemoryShare);
+
+    //...Set shared data
+    if ( pthread_mutexattr_setpshared(&gMemoryShare, PTHREAD_PROCESS_SHARED) != 0 ) {
+        //...Display error
+        perror ( "[ERROR] 'pthread_mutexattr_setpshared' : ");
+        //# WE can still run, Just means multi-threading wont work
+    }
+
     gPi.resetPi();
 
     //...Init services
@@ -48,6 +60,23 @@ int main ( int agc , char * argv[] ) {
         printf ( "[ERROR] RPI Service Failed to start\n" );
         return -2;
     }
+
+    //...Initalise dictonary
+    if ( !ghex_id_data.initDictonary() ){
+        printf ( "[ERROR] HEX ID dictonary init failed\n" );
+        return -3;
+    }
+    
+    //...Import hard coded dictonary
+    ghex_id_data.initImportHardCoded();
+    printf("%s Dictonary imported : %i records sucessfully\n", prefix , ghex_id_data.getRecordCount() );
+    
+    //...Initalise Can_logger
+    if ( !gCanLogger.initCanLogger ( SERVER_MULTCAST_ADDR , SERVER_CANBUS_PORT )) {
+        printf ( "[ERROR] Can Logger Init Service Failed\n" );
+        return -4;
+    }
+
 
     CZCore::displayThreadInfo ( prefix );
 
@@ -102,11 +131,56 @@ void  sigHandler (int sig)
 
 void runRPi (){
     //...Due to MYSQL : Create a local Pi Handler
-
+    sleep(5);
     CZCore::displayThreadInfo ( prefix );
+    CTimer mTimer;
+    mTimer.start();
+    CRaspberryPi * tPi;
+
+    CSocket sock;
+    CBuffer buff;
+
+    if (sock.udpconnectmcast(SERVER_MULTCAST_ADDR_RPI , SERVER_PORT_OUT , 1 )<0){
+        printf ( "[ERROR] : CSocket::udpconnectmcast Failed" );
+    }
+    else{
+        printf("%s RPi-Service 'MAIN' LISTENING ON: %s:%i\n", prefix , SERVER_MULTCAST_ADDR_RPI , SERVER_PORT_OUT  );
+    }
+
+
+    //...Counter
+    double pingTimeLast = mTimer.getElapsedTimeInMilliSec(),
+            timeNow = mTimer.getElapsedTimeInMilliSec();
+
+    for ( int i=0;i<3;i++)
+        gPi.pingPi ( &sock , &buff );
 
     //...Proccess
     while ( 1 &&  !SigExit){
+        //...Time now
+        timeNow = mTimer.getElapsedTimeInMilliSec();
+
+        //...Handle Pi's keep alive
+        if ( pingTimeLast + NET_TTL < timeNow ){
+
+            // Lock list first
+            pthread_mutex_lock(&gPiListLock);
+
+            //...Iterate the loop
+            for (std::vector<CRaspberryPi * >::iterator it = gPiList.begin() ; it != gPiList.end(); ++it){
+                tPi = *it;
+                if (!tPi->pingPi ( &sock , &buff )){
+                    printf("[WARNING] SEND HEART BEAT FAILED\n");
+                }else{
+                    printf("%s Hear-breat: %s:%i\n", prefix , tPi->getIpAddress() , tPi->getPort() );
+                }
+            }
+            //...Release code
+            pthread_mutex_unlock(&gPiListLock);
+            pingTimeLast = timeNow;
+            //printf("%s SENDING HEART BEAT\n", prefix );
+        }
+
 
         sleep(1);   //...Reduces cpu time
     }
@@ -126,4 +200,18 @@ void setThreadCPU(){
         perror ( "[ERROR] 'pthread_setaffinity_np' : ");
         //# WE can still run, Just means multi-threading wont work
     }
+}
+
+void sigExceptionHandler ( int sig ){
+    printf("--# Exception Raised #--\n\tTrace back: \n");
+    void *array[10];
+    size_t size;
+
+    // get void*'s for all entries on the stack
+    size = backtrace(array, 10);
+
+    // print out all the frames to stderr
+    fprintf(stderr, "Error: signal %d:\n", sig);
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    exit(1);
 }
